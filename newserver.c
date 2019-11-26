@@ -41,6 +41,35 @@ void *set_shutdown ()
         exit (1);
 }
 
+void init_cards()
+{
+	int i;
+
+	for (i = 0; i < 52; ++i)
+	{
+		card_values[i] = (i % 13) + 1;
+		card_suits[i] = i / 13;
+	}
+
+	srand(time(NULL));
+	/* srand(1); */
+	for (i = 0; i < 52; ++i)
+	{
+		int cv, cs;
+		int j = rand() % 52;
+
+		cv = card_values[i];
+		card_values[i] = card_values[j];
+		card_values[j] = cv;
+
+		cs = card_suits[i];
+		card_suits[i] = card_suits[j];
+		card_suits[j] = cs;
+	}
+
+	ncard = 0;
+}
+
 main()
 {
   int id;
