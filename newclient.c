@@ -44,7 +44,7 @@ void play_game(int id)
   if( (gnShmID2 = shmget( keyShm, SEGSIZE, IPC_CREAT | IPC_EXCL | 0666 )) == -1 )
   {
           printf("Shared memory segment exist - opening as client\n");
-          /* Segment probably already exists - try as a client */
+          /* 세그먼트가 이미 존재한다면 - try as a client */
           if( (gnShmID2 = shmget( keyShm, SEGSIZE, 0 )) == -1 )
           {
                   perror("shmget");
@@ -70,7 +70,7 @@ void play_game(int id)
   if( (gnSemID2 = semget( keySem, 1, IPC_CREAT | IPC_EXCL | 0666 )) == -1 )
   {
           printf("Semapore segment exist - opening as client\n");
-          /* Segment probably already exists - try as a client */
+          /* 세그먼트가 이미 존재한다면 - try as a client */
           if( (gnSemID2 = semget( keySem, 0, 0 )) == -1 )
           {
                   perror("semget");
@@ -81,155 +81,174 @@ void play_game(int id)
   {
           printf("Creating new semapore segment\n");
   }
-  printf("Waiting for game to begin...\n");
-  printf("ID : %d\n", id);
+
+  /* server side - send first cardset */
+  printf("게임 시작 대기중...\n");
+  printf("client ID : %d\n", id);
+
   while(!pstShm2->check) {
      sleep(1);
      printf("waiting...\n");
-   }
- if( semop(gnSemID2, &mysem_open, 1) == -1 )
- {
-         perror("semop");
-         exit(1);
- }
- if(pstShm2->check)
- {
-   printf("check : %d\n", pstShm2->check);
+   } // Is it necessary?
 
- 		strncpy(buffer, pstShm2->data, BUFFER_SIZE);
-
- 		printf("%s\n", buffer);
-
-    int my_sum;
-    int dealer_sum;
-
-    my_hand_values[0] = get_value_id(buffer[0]);
-    my_hand_suits[0] = get_suit_id(buffer[1]);
-    my_hand_values[1] = get_value_id(buffer[2]);
-    my_hand_suits[1] = get_suit_id(buffer[3]);
-    dealer_hand_values[0] = get_value_id(buffer[4]);
-    dealer_hand_suits[0] = get_suit_id(buffer[5]);
-    nmy = 2;
-    ndealer = 1;
-    pstShm2->check = 0;
-    semop(gnSemID2, &mysem_close, 1);
-    while(1){
-      if( semop(gnSemID2, &mysem_open, 1) == -1 )
-      {
-              perror("semop");
-              exit(1);
-      }
-    	int choice;
-    	my_sum = calc_sum(my_hand_values, nmy);
-
-    	printf("\n");
-    	printf("My Hand: ");
-    	display_state(my_hand_values, my_hand_suits, nmy);
-    	printf("Dealer Hand: ");
-    	display_state(dealer_hand_values, dealer_hand_suits, ndealer);
-
-
-
-
-
-      if (my_sum > 21)
-      {
-        printf("\nI'm busted! I lose!\n");
-        if(shmdt(pstShm2) == -1) {
-           perror("shmdt failed");
+   /******* 임계영역 *******/
+   if( semop(gnSemID2, &mysem_open, 1) == -1 )
+   {
+           perror("semop");
            exit(1);
-        }
-        return;
-      }
-      printf("\n");
-      printf("1. Hit\n");
-      printf("2. Stand\n");
-      printf("Please choose 1 or 2: ");
-      fflush(stdout);
+   }
 
+   if(pstShm2->check)
+   {
+     /* first cardset recv */
+     strncpy(buffer, pstShm2->data, BUFFER_SIZE);
 
-      scanf("%d", &choice);
-      if (choice == 1)
-      {
-        strcpy(buffer, HIT);
-        printf("Sending: %s\n", buffer);
-        strncpy(pstShm2->data, buffer, BUFFER_SIZE);
-        pstShm2->check = 1;
-        pstShm2->check2 = 1;
-        semop(gnSemID2, &mysem_close, 1);
+     printf("received cardset: %s\n", buffer);
 
-        while(pstShm2->check){
-          sleep(1);
-          printf("wait for recive\n");
-        }
+     int my_sum;
+     int dealer_sum;
+
+     my_hand_values[0] = get_value_id(buffer[0]);
+     my_hand_suits[0] = get_suit_id(buffer[1]);
+     my_hand_values[1] = get_value_id(buffer[2]);
+     my_hand_suits[1] = get_suit_id(buffer[3]);
+     dealer_hand_values[0] = get_value_id(buffer[4]);
+     dealer_hand_suits[0] = get_suit_id(buffer[5]);
+     nmy = 2;
+     ndealer = 1;
+
+     pstShm2->check = 0;
+     semop(gnSemID2, &mysem_close, 1);
+     /******* 임계영역 *******/
+
+      while(1){
+        /******* 임계영역 *******/
         if( semop(gnSemID2, &mysem_open, 1) == -1 )
         {
                 perror("semop");
                 exit(1);
         }
+    	  int choice;
+    	  my_sum = calc_sum(my_hand_values, nmy);
 
+    	  printf("\n");
+    	  printf("My Hand: ");
+        display_state(my_hand_values, my_hand_suits, nmy);
+        printf("Dealer Hand: ");
+        display_state(dealer_hand_values, dealer_hand_suits, ndealer);
+
+        /* 내 덱에 합계가 21이 넘어갈 경우 lose */
+        if (my_sum > 21)
+        {
+          printf("\nI'm busted! I lose!\n");
+          /*shared memory detached*/
+          if(shmdt(pstShm2) == -1) {
+             perror("shmdt failed");
+             exit(1);
+          }
+          return;
+        }
+
+        printf("\n");
+        printf("1. Hit\n");
+        printf("2. Stand\n");
+        printf("Please choose 1 or 2: ");
+        fflush(stdout);
+
+        scanf("%d", &choice);
+        if (choice == 1)
+        {
+          strcpy(buffer, HIT);
+          printf("Sending: %s\n", buffer);
+          /* HIT send */
+          strncpy(pstShm2->data, buffer, BUFFER_SIZE);
+          pstShm2->check = 1;
+          pstShm2->check2 = 1;
+          semop(gnSemID2, &mysem_close, 1);
+          /******* 임계영역 *******/
+
+          /*
+          while(pstShm2->check){
+            sleep(1);
+            printf("wait for recive\n");
+          }
+          */
+
+          /******* 임계영역 *******/
+          if( semop(gnSemID2, &mysem_open, 1) == -1 )
+          {
+                  perror("semop");
+                  exit(1);
+          }
+          /* recv new card */
+          strncpy(buffer, pstShm2->data, BUFFER_SIZE);
+          pstShm2->check = 0;
+          printf("I received: %s\n", buffer);
+          my_hand_values[nmy] = get_value_id(buffer[0]);
+          my_hand_suits[nmy] = get_suit_id(buffer[1]);
+          ++nmy;
+
+          semop(gnSemID2, &mysem_close, 1);
+          /******* 임계영역 *******/
+        } // 임계영역이 끝났을 시에 server에서
+
+        else if (choice == 2)
+    		{
+    			strcpy(buffer, STAND);
+          printf("Sending: %s\n", buffer);
+          strncpy(pstShm2->data, buffer, BUFFER_SIZE);
+          pstShm2->check = 1;
+          pstShm2->check2 = 1;
+          semop(gnSemID2, &mysem_close, 1);
+    			break;
+    		}
+        else
+          printf("Unrecognized choice. Choose again.\n");
+      }
+      /*반복문 바깥*/
+
+      while(!pstShm2->finalcheck){
+        sleep(1);
+        printf("calculating...\n");
+      }
+
+      /******* 임계영역 *******/
+      if( semop(gnSemID2, &mysem_open, 1) == -1 )
+      {
+              perror("semop");
+              exit(1);
+      }
+      unsigned i;
+      /* dealer card recv*/
       strncpy(buffer, pstShm2->data, BUFFER_SIZE);
       pstShm2->check = 0;
       printf("I received: %s\n", buffer);
-      my_hand_values[nmy] = get_value_id(buffer[0]);
-      my_hand_suits[nmy] = get_suit_id(buffer[1]);
-      ++nmy;
-
-      semop(gnSemID2, &mysem_close, 1);
-      }
-      else if (choice == 2)
+      for (i = 0; i < strlen(buffer); i += 2)
   		{
-  			strcpy(buffer, STAND);
-        printf("Sending: %s\n", buffer);
-        strncpy(pstShm2->data, buffer, BUFFER_SIZE);
-        pstShm2->check = 1;
-        pstShm2->check2 = 1;
-        semop(gnSemID2, &mysem_close, 1);
-  			break;
+  			dealer_hand_values[ndealer] = get_value_id(buffer[i]);
+  			dealer_hand_suits[ndealer] = get_suit_id(buffer[i + 1]);
+  			++ndealer;
   		}
-      else
-        printf("Unrecognized choice. Choose again.\n");
-    }
-    /*반복문 바깥*/
+      semop(gnSemID2, &mysem_close, 1);
+      /******* 임계영역 *******/
 
-    while(!pstShm2->finalcheck){
-      sleep(1);
-      printf("calculating...\n");
-    }
-    if( semop(gnSemID2, &mysem_open, 1) == -1 )
-    {
-            perror("semop");
-            exit(1);
-    }
-    unsigned i;
-    strncpy(buffer, pstShm2->data, BUFFER_SIZE);
-    pstShm2->check = 0;
-    printf("I received: %s\n", buffer);
-    for (i = 0; i < strlen(buffer); i += 2)
-		{
-			dealer_hand_values[ndealer] = get_value_id(buffer[i]);
-			dealer_hand_suits[ndealer] = get_suit_id(buffer[i + 1]);
-			++ndealer;
-		}
-    semop(gnSemID2, &mysem_close, 1);
+      printf("\n");
+  		printf("My Hand: ");
+  		display_state(my_hand_values, my_hand_suits, nmy);
+  		printf("Dealer Hand: ");
+  		display_state(dealer_hand_values, dealer_hand_suits, ndealer);
 
-    printf("\n");
-		printf("My Hand: ");
-		display_state(my_hand_values, my_hand_suits, nmy);
-		printf("Dealer Hand: ");
-		display_state(dealer_hand_values, dealer_hand_suits, ndealer);
+    	my_sum = calc_sum(my_hand_values, nmy);
+    	dealer_sum = calc_sum(dealer_hand_values, ndealer);
 
-	my_sum = calc_sum(my_hand_values, nmy);
-	dealer_sum = calc_sum(dealer_hand_values, ndealer);
-
-	if (dealer_sum > 21)
-		printf("\nDealer busted! I win!\n");
-	else if (my_sum == dealer_sum)
-		printf("\nMe and the dealer have the same score. It's a push!\n");
-	else if (my_sum < dealer_sum)
-		printf("\nDealer has a higher score. I lose!\n");
-	else
-		printf("\nI have a higher score. I win!\n");
+    	if (dealer_sum > 21)
+    		printf("\nDealer busted! I win!\n");
+    	else if (my_sum == dealer_sum)
+    		printf("\nMe and the dealer have the same score. It's a push!\n");
+    	else if (my_sum < dealer_sum)
+    		printf("\nDealer has a higher score. I lose!\n");
+    	else
+    		printf("\nI have a higher score. I win!\n");
 
   }
 
@@ -250,7 +269,6 @@ void play_game(int id)
 
 int main()
 {
-
   /* Shared Memory */
   key_t        keyShm;       /* Shared Memory Key */
   key_t        keySem;       /* Semapore Key */
@@ -304,15 +322,19 @@ int main()
 
   //semctl( gnSemID2, 0, SETVAL, sem_union );
 
+  /* 반복문일 필요 없을 거같음 */
   while(1) {
 
-    printf("input data ==> ");
+    printf("input \"start\" ==> ");
     fgets(buffer, BUFFER_SIZE, stdin); //start
 
     /* 공유메모리에 데이터 쓰기 */
     strncpy(pstShm1->data, buffer, BUFFER_SIZE);
     pstShm1->check = 1;
+    /* server가 먼저 실행 */
     while(pstShm1->check);
+
+    /******* 임계영역 *******/
     if( semop(gnSemID1, &mysem_open, 1) == -1 )
     {
            perror("semop");
@@ -327,15 +349,17 @@ int main()
     strcpy(buffer, pstShm1->data);
     printf("recv: %s\n", buffer);
     semop(gnSemID1, &mysem_close, 1);
+    /******* 임계영역 *******/
     id=buffer[0]-48;
     play_game(id);
     printf("game end!\n");
 
+    /* shared memory & semapore del */
     printf("[SIGNAL] : Shared meory segment marked for deletion\n");
     shmctl( gnShmID2, IPC_RMID, 0 );
     printf("[SIGNAL] : Semapore segment marked for deletion\n");
     semctl( gnSemID2, IPC_RMID, 0 );
-    exit(1);
+    break;
   }
   if(shmdt(pstShm1) == -1) {
      perror("shmdt failed");

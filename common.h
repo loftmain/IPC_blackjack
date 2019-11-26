@@ -40,6 +40,7 @@ typedef struct {
 	int finalcheck;
 	char data[BUFFER_SIZE];
 } _ST_SHM;
+
 void error(const char *msg)
 {
 	fprintf(stderr, "%s\n", msg);
