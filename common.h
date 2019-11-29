@@ -84,7 +84,7 @@ int calc_sum(const int hand_values[], int ncards)
 	return sum;
 }
 
-void display_state(int hand_values[], int hand_suits[], int ncards)
+int display_state(int hand_values[], int hand_suits[], int ncards)
 {
 	int i;
 	int sum = calc_sum(hand_values, ncards);
@@ -95,9 +95,17 @@ void display_state(int hand_values[], int hand_suits[], int ncards)
 		printf("%s-%s", values[hand_values[i]], suits[hand_suits[i]]);
 	}
 	printf(" Sum: %d", sum);
-	if (sum > 21)
+	if (sum > 21){
 		printf("; BUSTED");
+		printf("\n");
+		return 1;
+		}
+	else if (sum == 21){
+		printf("\n");
+		return 1;
+	}
 	printf("\n");
+	return 0;
 }
 
 struct timeval difftimeval(const struct timeval tv1, const struct timeval tv2)

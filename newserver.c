@@ -292,7 +292,7 @@ void* play_game_one(void *data)
   display_state(dealer_hand_values, dealer_hand_suits, ndealers[id]);
 
   while(TRUE){
-    if(shared_data->check){
+    if(!shared_data->check2){
       if( semop(gnSemID2, &mysem_open, 1) == -1 ) // 대기상태
       {
         perror("semop");
@@ -300,11 +300,13 @@ void* play_game_one(void *data)
       }
     }
     /* HIT, STAND signal 빋기*/
-    if(shared_data->check)
+    if(!shared_data->check2)
     {
       strncpy(buffer, shared_data->data, BUFFER_SIZE);
+      shared_data->check2=1;
       printf("I received from player 1: %s\n", buffer);
       strncpy(shared_data->data, "\0", BUFFER_SIZE);
+
       /* HIT 결과 전송 */
 
       if (strcmp(buffer, HIT) == 0)
@@ -325,7 +327,7 @@ void* play_game_one(void *data)
 
         strncpy(shared_data->data, buffer, BUFFER_SIZE);
         printf("I send to player 1: %s\n", buffer);
-        shared_data->check=0;
+        shared_data->check=2;
         buffer[0] = '\0';
         semop(gnSemID2, &mysem_close, 1);
 
@@ -333,7 +335,7 @@ void* play_game_one(void *data)
         if (calc_sum(player_hand_values, nplayers[id]) > 21)
         {
           printf("Player 1 busted. Dealer wins.\n");
-          return NULL;
+          break;
         }
         /* 플레이어 결과가 21일 경우 이기기 때문에 break */
         else if (calc_sum(player_hand_values, nplayers[id]) == 21)
@@ -341,6 +343,8 @@ void* play_game_one(void *data)
       }
       /* 플레이어의 signal이 STAND인 경우 stop*/
       else if (strcmp(buffer, STAND) == 0){
+        //shared_data->finalcheck=1;
+        shared_data->check=0;
         semop(gnSemID2, &mysem_close, 1);
         break;
       }
@@ -385,9 +389,11 @@ void* play_game_one(void *data)
   else
     printf("\nPlayer %d has a higher score. Player wins!\n", id);
 
+
     /* 세마포어, shared memory 제거*/
   if(shmdt(shared_data) == -1) {
      perror("shmdt failed");
      exit(1);
   }
+
 }
