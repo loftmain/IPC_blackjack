@@ -1,42 +1,48 @@
 #include "common.h"
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include <sys/sem.h>
 
 
-int shmId;
-int semId;
 
 
-char buffer[BUFFER_SIZE];
-int nwritten;
-int             gnShmID1;      /* Shared Memory Indicator */
-int             gnShmID2;      /* Shared Memory Indicator */
-int             gnSemID1;      /* Semapore Indicator */
-int             gnSemID2;      /* Semapore Indicator */
+int gnShmID1;      /* Shared Memory Indicator */
+int gnShmID2;      /* Shared Memory Indicator */
+int gnSemID1;      /* Semapore Indicator */
+int gnSemID2;      /* Semapore Indicator */
 pthread_t threads[MAX_PLAYERS];
+char buffer[BUFFER_SIZE];
+
 /* Shared Memory */
-key_t        keyShm;       /* Shared Memory Key */
-_ST_SHM        *pstShm2;      /* 공용 메모리 구조체 */
+key_t keyShm;       /* Shared Memory Key */
+_ST_SHM *pstShm2;      /* 공용 메모리 구조체 */
 
 /* Semapore */
-key_t        keySem;       /* Semapore Key */
+key_t keySem;       /* Semapore Key */
 struct sembuf mysem_open  = {0, -1, SEM_UNDO}; // 세마포어 얻기
 struct sembuf mysem_close = {0, 1, SEM_UNDO};  // 세마포어 돌려주기
 
 int my_sum;
 int dealer_sum;
 
-void send_msg(void *x)
+/*ctrl+C 로 종료시 공유자원 해제*/
+void *set_shutdown ()
 {
-  sleep(0.2);
+        printf("[SIGNAL] : Got shutdown signal\n");
+        shmctl( gnShmID2, IPC_RMID, 0 );
+        printf("[SIGNAL] : Shared meory segment marked for deletion\n");;
+        semctl( gnSemID2, IPC_RMID, 0 );
+        printf("[SIGNAL] : Semapore segment marked for deletion\n");
+        exit (1);
+}
+
+/*데이터 전송 스레드*/
+void* send_msg(void *x)
+{
+  //sleep(0.2);
   int choice;
   while(1){
+    /* 게임 종료시그널을 받으면 전송 스레드도 종료*/
     if(pstShm2->finalcheck){break;}
+
+    /*HIT STAND를 보내야 할 상황일 때*/
     if(pstShm2->check2){
       printf("\n");
       printf("1. Hit\n");
@@ -45,6 +51,7 @@ void send_msg(void *x)
       fflush(stdout);
 
       scanf("%d", &choice);
+      /*임계영역*/
       if( semop(gnSemID2, &mysem_open, 1) == -1 )
       {
               perror("semop");
@@ -58,6 +65,7 @@ void send_msg(void *x)
         strncpy(pstShm2->data, buffer, BUFFER_SIZE);
         pstShm2->check2 = 0;
         semop(gnSemID2, &mysem_close, 1);
+        /*임계영역*/
         sleep(1);
       }
       else if (choice == 2)
@@ -68,6 +76,7 @@ void send_msg(void *x)
         pstShm2->check2 = 0;
         pstShm2->check = 0;
         semop(gnSemID2, &mysem_close, 1);
+        /*임계영역*/
         break;
       }
       else
@@ -77,9 +86,10 @@ void send_msg(void *x)
 }
 
 
-
-void recv_msg(void* x)
+/*데이터 수신 스레드*/
+void* recv_msg(void* x)
 {
+  /*게임 플레이에 쓸 카드 변수들 */
   int my_hand_values[20], dealer_hand_values[20];
   int my_hand_suits[20], dealer_hand_suits[20];
   int nmy = 0, ndealer = 0;
@@ -88,7 +98,9 @@ void recv_msg(void* x)
 
 
   while(1) {
+    /*첫 카드덱을 받을 경우*/
      if(pstShm2->check==1){
+       /*임계영역*/
        if( semop(gnSemID2, &mysem_open, 1) == -1 )
        {
                perror("semop");
@@ -112,13 +124,17 @@ void recv_msg(void* x)
        my_sum = calc_sum(my_hand_values, nmy);
 
        printf("\n");
+       /*카드덱과 합산값 화면출력*/
        printf("My Hand: ");
        display_state(my_hand_values, my_hand_suits, nmy);
        printf("Dealer Hand: ");
        display_state(dealer_hand_values, dealer_hand_suits, ndealer);
+       /*체크 시그널 수정*/
        pstShm2->check = 0;
        pstShm2->check2 = 1;
+
        semop(gnSemID2, &mysem_close, 1);
+       /*임계영역*/
      }
 
      /* 내 덱에 합계가 21이 넘어갈 경우 lose */
@@ -133,7 +149,7 @@ void recv_msg(void* x)
        break;
      }
 
-
+     /*HIT하여 새로운 카드 받는 부분*/
      if(pstShm2->check==2){
        /******* 임계영역 *******/
        if( semop(gnSemID2, &mysem_open, 1) == -1 )
@@ -150,14 +166,18 @@ void recv_msg(void* x)
        ++nmy;
        printf("\n");
        printf("My Hand: ");
+       /*클라이언트의 카드 합산이 21이 넘어갈 경우 게임 끝 시그널 설정*/
        pstShm2->finalcheck = display_state(my_hand_values, my_hand_suits, nmy);
        printf("Dealer Hand: ");
+       /*카드덱과 합산값 화면출력*/
        display_state(dealer_hand_values, dealer_hand_suits, ndealer);
+       /*체크 시그널 수정*/
        pstShm2->check = 0;
        pstShm2->check2 = 1;
        semop(gnSemID2, &mysem_close, 1);
        /******* 임계영역 *******/
      }
+     /*게임 끝 시그널일 경우*/
      if(pstShm2->finalcheck){
        pstShm2->finalcheck=0;
        /******* 임계영역 *******/
@@ -167,11 +187,12 @@ void recv_msg(void* x)
                exit(1);
        }
        unsigned i;
-       /* dealer card recv*/
+       /* 딜러의 패를 받아온다. */
        strncpy(buffer, pstShm2->data, BUFFER_SIZE);
        pstShm2->check = 0;
        pstShm2->check2 = 0;
        printf("I received: %s\n", buffer);
+       /*딜러의 패 합산*/
        for (i = 0; i < strlen(buffer); i += 2)
    		{
    			dealer_hand_values[ndealer] = get_value_id(buffer[i]);
@@ -189,7 +210,7 @@ void recv_msg(void* x)
 
      	my_sum = calc_sum(my_hand_values, nmy);
      	dealer_sum = calc_sum(dealer_hand_values, ndealer);
-
+      /*게임 승패 정보 출력*/
      	if (dealer_sum > 21)
      		printf("\nDealer busted! I win!\n");
      	else if (my_sum == dealer_sum)
@@ -202,18 +223,22 @@ void recv_msg(void* x)
      }
 
   }
-
+  /*shared memory detached*/
   if(shmdt(pstShm2) == -1) {
      perror("shmdt failed");
      exit(1);
   }
 }
 
-void play_game(void * id)
+/*게임 시작 스레드 새로운 공유메모리와 세마포어 설정*/
+void* play_game(void * id)
 {
 
-  shmId = (int)id + 60100;
-  semId = (int)id+1 +60100;
+  int shmId;
+  int semId;
+  /*공유메모리와 세마포어의 키값을 클라이언트 ID에 맞춰 생성*/
+  shmId = (intptr_t)id + 60100;
+  semId = (intptr_t)id+1 +60100;
   keyShm = (key_t)shmId;
   /* 공유 메모리 세그먼트를 연다 - 필요하면 만든다. */
   if( (gnShmID2 = shmget( keyShm, SEGSIZE, IPC_CREAT | IPC_EXCL | 0666 )) == -1 )
@@ -256,10 +281,11 @@ void play_game(void * id)
   {
           printf("Creating new semapore segment\n");
   }
-
-  pthread_create(&threads[1], NULL, recv_msg, (void*) pstShm2);
-  pthread_create(&threads[2], NULL, send_msg, (void*) pstShm2);
+  /*recv_msg, send_msg 스레드 생성*/
+  pthread_create(&threads[1], NULL, recv_msg, NULL);
+  pthread_create(&threads[2], NULL, send_msg, NULL);
   int tid;
+  /*스레드들 끝날때까지 대기후 삭제*/
   for (tid = 1; tid < 2; ++tid)
     pthread_join(threads[tid], NULL);
 }
@@ -322,13 +348,15 @@ int main()
           printf("Creating new semapore segment\n");
   }
 
-  //semctl( gnSemID2, 0, SETVAL, sem_union );
+  /* Signal 등록 */
+  (void) signal (SIGINT, (void (*)()) set_shutdown);
 
-  /* 반복문일 필요 없을 거같음 */
+
   while(1) {
 
     printf("input \"start\" ==> ");
-    fgets(buffer, BUFFER_SIZE, stdin); //start
+    /*start를 입력하면 게임시작*/
+    fgets(buffer, BUFFER_SIZE, stdin);
 
     /* 공유메모리에 데이터 쓰기 */
     strncpy(pstShm1->data, buffer, BUFFER_SIZE);
@@ -347,18 +375,19 @@ int main()
        break;
     }
 
-
+    /*몇번째 클라이언트 ID인지를 받아온다.*/
     strcpy(buffer, pstShm1->data);
     printf("recv: %s\n", buffer);
     semop(gnSemID1, &mysem_close, 1);
     /******* 임계영역 *******/
     id=buffer[0]-48;
-    pthread_create(&threads[0], NULL, play_game, (void*) id);
+    /*play_game 스레드 진입*/
+    pthread_create(&threads[0], NULL, play_game, (void*)(intptr_t) id);
+    /*스레드 종료 대기후 삭제*/
     pthread_join(threads[0], NULL);
     printf("game end!\n");
 
     /* shared memory & semapore del */
-
     printf("[SIGNAL] : Shared meory segment marked for deletion\n");
     shmctl( gnShmID2, IPC_RMID, 0 );
     printf("[SIGNAL] : Semapore segment marked for deletion\n");
