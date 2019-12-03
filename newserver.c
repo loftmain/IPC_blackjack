@@ -1,29 +1,24 @@
 #include "common.h"
-#include <stdio.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <time.h>
-#include <sys/sem.h>
-#include <signal.h>        /* For signal() */
-#define MAX_PLAYERS 4
 
-void* play_game_one(void *data);
+//#define MAX_PLAYERS 4
+
+
+/*딜러들의 공유하는 카드덱 전역변수*/
 int card_values[52];
 int card_suits[52];
 int ncard;
+/*딜러들은 한 카드덱을 공유*/
 pthread_mutex_t card_mutex;
+/*카드 패 전역변수*/
 int players_hand_values[MAX_PLAYERS][20], dealers_hand_values[MAX_PLAYERS][20];
 int players_hand_suits[MAX_PLAYERS][20], dealers_hand_suits[MAX_PLAYERS][20];
 int nplayers[MAX_PLAYERS], ndealers[MAX_PLAYERS];
 
-int             gnShmID1;      /* Shared Memory Indicator */
-int             gnSemID1;      /* Semapore Indicator */
+int gnShmID1;      /* Shared Memory Indicator */
+int gnSemID1;      /* Semapore Indicator */
+void* play_game_one(void *data);
 
+/*세마포어 구조체*/
 union semun
 {
         int val;
@@ -31,6 +26,9 @@ union semun
         unsigned short int *array;
 };
 
+/*ctrl+C 로 종료시 공유자원 해제*/
+/*서버는 딜러가 항시 대기 하고 있는 것으로 간주하여 따로 종료하지 않는다.*/
+/*종료를 위해서는 ctrl+C로 종료*/
 void *set_shutdown ()
 {
         printf("[SIGNAL] : Got shutdown signal\n");
@@ -41,6 +39,7 @@ void *set_shutdown ()
         exit (1);
 }
 
+/*카드덱을 초기화하는 함수*/
 void init_cards()
 {
 	int i;
@@ -70,16 +69,18 @@ void init_cards()
 	ncard = 0;
 }
 
-main()
+/*main 스레드*/
+int main(void)
 {
-  int id;
+  /*딜러스레드를 만들 스레드변수*/
   pthread_t threads[MAX_PLAYERS];
   /* Shared Memory */
   key_t keyShm;       /* Shared Memory Key */
   key_t keySem;       /* Semapore Key */
   _ST_SHM *pstShm1;      /* 공용 메모리 구조체 */
-  init_cards();
+  int i;
   int count = 1;
+  /*키캆들 정의*/
   keyShm = (key_t)60100;
   keySem = (key_t)60101;
   char buffer[BUFFER_SIZE];
@@ -136,42 +137,47 @@ main()
   /* Semapore 초기화 */
   sem_union.val = 1;
   semctl( gnSemID1, 0, SETVAL, sem_union );
+  /*카드 초기화*/
+  init_cards();
 
   while(1) {
+     /*클라이언트가 접속해서 정보 입력*/
      if(pstShm1->check) {
+        /*"start"를 전송받으면*/
         if(strncmp(pstShm1->data, "start", 5) == 0){
+          /*임계영역*/
           if( semop(gnSemID1, &mysem_open, 1) == -1 )
           {
                  perror("semop");
                  exit(1);
           }
           printf("start! : %s\n", pstShm1->data);
-          pthread_create(&threads[count], NULL, play_game_one, (void*) count);
+          /*딜러를 의미하는 play_game_one 스레드 생성*/
+          pthread_create(&threads[count], NULL, play_game_one, (void *)(intptr_t) count);
 
-
-          printf("count: %d\n", count);
           sprintf(buffer, "%d", count);
-          //while(!pstShm1->check);
 
           strcpy(pstShm1->data, buffer);
-
 
           pstShm1->check = 0;
           count+=1;
           semop(gnSemID1, &mysem_close, 1);
-
+          /*임계영역*/
       }
     }
+  if(count==4){break;}
   }
+  for (i = 1;i<count; ++i)
+    pthread_join(threads[i], NULL);
 }
 
 void* play_game_one(void *data)
 {
   int gnShmID2;      /* Shared Memory Indicator */
   int gnSemID2;      /* Semapore Indicator */
-  int id = (int)data;
-  int shmId = (int)data + 60100;
-  int semId = (int)data+1 +60100;
+  int id = (intptr_t)data;
+  int shmId = (intptr_t)data + 60100;
+  int semId = (intptr_t)data+1 +60100;
   char buffer[BUFFER_SIZE];
   int nwritten;
   int player_sum, dealer_sum;
@@ -286,13 +292,13 @@ void* play_game_one(void *data)
    }
   /* 첫 카드를 주고서*/
   printf("\n");
-  printf("Player 1 Hand: " );
+  printf("Player %d Hand: ", id );
   display_state(player_hand_values, player_hand_suits, nplayers[id]);
-  printf("Dealer Hand with player 1: ");
+  printf("Dealer Hand with player %d: ", id);
   display_state(dealer_hand_values, dealer_hand_suits, ndealers[id]);
 
   while(TRUE){
-    if(shared_data->check){
+    if(!shared_data->check2){
       if( semop(gnSemID2, &mysem_open, 1) == -1 ) // 대기상태
       {
         perror("semop");
@@ -300,11 +306,13 @@ void* play_game_one(void *data)
       }
     }
     /* HIT, STAND signal 빋기*/
-    if(shared_data->check)
+    if(!shared_data->check2)
     {
       strncpy(buffer, shared_data->data, BUFFER_SIZE);
-      printf("I received from player 1: %s\n", buffer);
+      shared_data->check2=1;
+      printf("I received from player %d: %s\n", id, buffer);
       strncpy(shared_data->data, "\0", BUFFER_SIZE);
+
       /* HIT 결과 전송 */
 
       if (strcmp(buffer, HIT) == 0)
@@ -324,16 +332,16 @@ void* play_game_one(void *data)
         pthread_mutex_unlock(&card_mutex);
 
         strncpy(shared_data->data, buffer, BUFFER_SIZE);
-        printf("I send to player 1: %s\n", buffer);
-        shared_data->check=0;
+        printf("I send to player %d: %s\n", id, buffer);
+        shared_data->check=2;
         buffer[0] = '\0';
         semop(gnSemID2, &mysem_close, 1);
 
         /* 플레이어 결과가 21이 넘을 경우*/
         if (calc_sum(player_hand_values, nplayers[id]) > 21)
         {
-          printf("Player 1 busted. Dealer wins.\n");
-          return NULL;
+          printf("Player %d busted. Dealer wins.\n", id);
+          break;
         }
         /* 플레이어 결과가 21일 경우 이기기 때문에 break */
         else if (calc_sum(player_hand_values, nplayers[id]) == 21)
@@ -341,6 +349,8 @@ void* play_game_one(void *data)
       }
       /* 플레이어의 signal이 STAND인 경우 stop*/
       else if (strcmp(buffer, STAND) == 0){
+        //shared_data->finalcheck=1;
+        shared_data->check=0;
         semop(gnSemID2, &mysem_close, 1);
         break;
       }
@@ -359,9 +369,9 @@ void* play_game_one(void *data)
   buffer[i] = 0;
 
   printf("\n");
-  printf("Player 1 Hand: ");
+  printf("Player %d Hand: ", id);
   display_state(player_hand_values, player_hand_suits, nplayers[id]);
-  printf("Dealer 1 Hand: ");
+  printf("Dealer %d Hand: ", id);
   display_state(dealer_hand_values, dealer_hand_suits, ndealers[id]);
 
   if( semop(gnSemID2, &mysem_open, 1) == -1 )
@@ -385,9 +395,11 @@ void* play_game_one(void *data)
   else
     printf("\nPlayer %d has a higher score. Player wins!\n", id);
 
+
     /* 세마포어, shared memory 제거*/
   if(shmdt(shared_data) == -1) {
      perror("shmdt failed");
      exit(1);
   }
+
 }
