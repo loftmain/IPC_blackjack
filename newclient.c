@@ -38,6 +38,7 @@ void* send_msg(void *x)
 {
   //sleep(0.2);
   int choice;
+  char strChoice[10];
   while(1){
     /* 게임 종료시그널을 받으면 전송 스레드도 종료*/
     if(pstShm2->finalcheck){break;}
@@ -50,17 +51,18 @@ void* send_msg(void *x)
       printf("Please choose 1 or 2: ");
       fflush(stdout);
 
-      //scanf("%d", &choice);
-      fgets(choice, sizeof(choice), stdin);
-      /*임계영역*/
-      if( semop(gnSemID2, &mysem_open, 1) == -1 )
-      {
-              perror("semop");
-              exit(1);
-      }
+      /*문자열 제한 get*/
+      fgets(strChoice, sizeof(strChoice), stdin);
+      choice = atoi(strChoice);
       /*HIT을 선택할 경우*/
       if (choice == 1)
       {
+        /*임계영역*/
+        if( semop(gnSemID2, &mysem_open, 1) == -1 )
+        {
+              perror("semop");
+              exit(1);
+        }
         strcpy(buffer, HIT);
         printf("Sending: %s\n", buffer);
         /* HIT send */
@@ -73,6 +75,12 @@ void* send_msg(void *x)
       /*STAND를 선택한 경우*/
       else if (choice == 2)
       {
+        /*임계영역*/
+        if( semop(gnSemID2, &mysem_open, 1) == -1 )
+        {
+              perror("semop");
+              exit(1);
+        }
         strcpy(buffer, STAND);
         printf("Sending: %s\n", buffer);
         strncpy(pstShm2->data, buffer, BUFFER_SIZE);
@@ -84,7 +92,8 @@ void* send_msg(void *x)
       }
       else
         printf("Unrecognized choice. Choose again.\n");
-      choice[strlen(choice)-1] = '\0';
+      /*문자열 초기화*/
+      strChoice[strlen(strChoice)-1] = '\0';
     }
   }
 }
