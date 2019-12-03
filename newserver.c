@@ -78,7 +78,7 @@ int main(void)
   key_t keyShm;       /* Shared Memory Key */
   key_t keySem;       /* Semapore Key */
   _ST_SHM *pstShm1;      /* 공용 메모리 구조체 */
-
+  int i;
   int count = 1;
   /*키캆들 정의*/
   keyShm = (key_t)60100;
@@ -165,7 +165,10 @@ int main(void)
           /*임계영역*/
       }
     }
+  if(count==4){break;}
   }
+  for (i = 1;i<count; ++i)
+    pthread_join(threads[i], NULL);
 }
 
 void* play_game_one(void *data)
@@ -289,9 +292,9 @@ void* play_game_one(void *data)
    }
   /* 첫 카드를 주고서*/
   printf("\n");
-  printf("Player 1 Hand: " );
+  printf("Player %d Hand: ", id );
   display_state(player_hand_values, player_hand_suits, nplayers[id]);
-  printf("Dealer Hand with player 1: ");
+  printf("Dealer Hand with player %d: ", id);
   display_state(dealer_hand_values, dealer_hand_suits, ndealers[id]);
 
   while(TRUE){
@@ -307,7 +310,7 @@ void* play_game_one(void *data)
     {
       strncpy(buffer, shared_data->data, BUFFER_SIZE);
       shared_data->check2=1;
-      printf("I received from player 1: %s\n", buffer);
+      printf("I received from player %d: %s\n", id, buffer);
       strncpy(shared_data->data, "\0", BUFFER_SIZE);
 
       /* HIT 결과 전송 */
@@ -329,7 +332,7 @@ void* play_game_one(void *data)
         pthread_mutex_unlock(&card_mutex);
 
         strncpy(shared_data->data, buffer, BUFFER_SIZE);
-        printf("I send to player 1: %s\n", buffer);
+        printf("I send to player %d: %s\n", id, buffer);
         shared_data->check=2;
         buffer[0] = '\0';
         semop(gnSemID2, &mysem_close, 1);
@@ -337,7 +340,7 @@ void* play_game_one(void *data)
         /* 플레이어 결과가 21이 넘을 경우*/
         if (calc_sum(player_hand_values, nplayers[id]) > 21)
         {
-          printf("Player 1 busted. Dealer wins.\n");
+          printf("Player %d busted. Dealer wins.\n", id);
           break;
         }
         /* 플레이어 결과가 21일 경우 이기기 때문에 break */
@@ -366,9 +369,9 @@ void* play_game_one(void *data)
   buffer[i] = 0;
 
   printf("\n");
-  printf("Player 1 Hand: ");
+  printf("Player %d Hand: ", id);
   display_state(player_hand_values, player_hand_suits, nplayers[id]);
-  printf("Dealer 1 Hand: ");
+  printf("Dealer %d Hand: ", id);
   display_state(dealer_hand_values, dealer_hand_suits, ndealers[id]);
 
   if( semop(gnSemID2, &mysem_open, 1) == -1 )

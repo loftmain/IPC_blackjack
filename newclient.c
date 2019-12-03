@@ -50,13 +50,15 @@ void* send_msg(void *x)
       printf("Please choose 1 or 2: ");
       fflush(stdout);
 
-      scanf("%d", &choice);
+      //scanf("%d", &choice);
+      fgets(choice, sizeof(choice), stdin);
       /*임계영역*/
       if( semop(gnSemID2, &mysem_open, 1) == -1 )
       {
               perror("semop");
               exit(1);
       }
+      /*HIT을 선택할 경우*/
       if (choice == 1)
       {
         strcpy(buffer, HIT);
@@ -68,6 +70,7 @@ void* send_msg(void *x)
         /*임계영역*/
         sleep(1);
       }
+      /*STAND를 선택한 경우*/
       else if (choice == 2)
       {
         strcpy(buffer, STAND);
@@ -81,6 +84,7 @@ void* send_msg(void *x)
       }
       else
         printf("Unrecognized choice. Choose again.\n");
+      choice[strlen(choice)-1] = '\0';
     }
   }
 }
@@ -110,7 +114,7 @@ void* recv_msg(void* x)
        printf("received : %s\n", buffer);
 
 
-
+       /*내 패에 받은 카드를 저장*/
        my_hand_values[0] = get_value_id(buffer[0]);
        my_hand_suits[0] = get_suit_id(buffer[1]);
        my_hand_values[1] = get_value_id(buffer[2]);
@@ -121,6 +125,7 @@ void* recv_msg(void* x)
        ndealer = 1;
 
        int choice;
+       /*합산*/
        my_sum = calc_sum(my_hand_values, nmy);
 
        printf("\n");
@@ -161,6 +166,7 @@ void* recv_msg(void* x)
        strncpy(buffer, pstShm2->data, BUFFER_SIZE);
 
        printf("I received: %s\n", buffer);
+       /*내 패에 받은 카드를 저장*/
        my_hand_values[nmy] = get_value_id(buffer[0]);
        my_hand_suits[nmy] = get_suit_id(buffer[1]);
        ++nmy;
@@ -203,6 +209,7 @@ void* recv_msg(void* x)
        /******* 임계영역 *******/
 
        printf("\n");
+       /*마지막 패 보여주기*/
    		printf("My Hand: ");
    		pstShm2->finalcheck = display_state(my_hand_values, my_hand_suits, nmy);
    		printf("Dealer Hand: ");
